@@ -1,0 +1,42 @@
+[project]
+name = "fin"
+version = "0.1.0"
+description = "Local personal finance dashboard (Enable Banking PSD2 + DEGIRO)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "httpx>=0.27",
+    "pyjwt[crypto]>=2.9",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "pandas>=2.2",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "rapidfuzz>=3.9",
+    "pyyaml>=6.0",
+    "streamlit>=1.40",
+    "plotly>=5.24",
+    "scikit-learn>=1.5",
+    "yfinance>=0.2.50",
+]
+
+[project.scripts]
+fin = "fin.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fin"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

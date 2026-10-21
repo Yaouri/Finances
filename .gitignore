@@ -1,0 +1,21 @@
+# secrets — never commit
+.env
+secrets/
+*.pem
+
+# local data (DB, raw payloads, imports, price cache)
+data/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# editors
+.vscode/
+.idea/
