@@ -1,0 +1,62 @@
+# Starter rules, copied into the DB on first run (then edit them in the app).
+# field: merchant (normalised name) | description | party | type (descriptor type) | counterparty
+# pattern: case-insensitive regex (search). sign: -1 out / 1 in. First match wins (top to bottom).
+
+# --- by descriptor type (generic fallbacks are at the bottom) ---
+- {field: type, pattern: '^salary$', account_kind: meal, category: Meal allowance}
+- {field: type, pattern: '^salary$', category: Salary}
+- {field: type, pattern: '^interest$', category: Interest}
+- {field: description, pattern: 'IMPOSTO (DO )?SELO', category: Fees & taxes > Stamp duty}
+- {field: description, pattern: 'CUSTO DE SERVICO INTERNACIONAL|COM\.?LEVANTAMENTO|COMISSAO LEVANTAMENTO', category: Fees & taxes > FX & card fees}
+- {field: type, pattern: '^fee$', category: Fees & taxes > Bank fees}
+- {field: type, pattern: '^atm$', category: Cash > ATM withdrawal}
+- {field: type, pattern: '^fx$', category: Travel > Currency exchange}
+- {field: description, pattern: 'REEMBOLSOS\s+IRS|AT - REEM', category: Tax refund}
+
+# --- merchants ---
+- {field: merchant, pattern: '^(Pingo Doce|Continente|Lidl|Aldi|Minipreço|Auchan|Mercadona|Intermarché|Celeiro|Talho Povo|Meu Super|Frutaria|Espaco Fresco)\b', category: Food > Groceries}
+- {field: merchant, pattern: '^(Glovo|Uber Eats)$', category: Food > Delivery}
+- {field: merchant, pattern: '^(Gertal|Banco Santander Tott)\b', category: Food > Canteen}
+- {field: merchant, pattern: '^(Zin Vending|Quiosque|Pad |Padaria|Pastelaria|Cafe|Café|Starbucks|Delta)\b', category: Food > Cafés & snacks}
+- {field: merchant, pattern: '^(Burger King|McDonald''s|Restaurante|Rest |Tasca|Pizzaria|Sushi|Kaza)\b', category: Food > Restaurants}
+- {field: merchant, pattern: '^(Uber|Bolt|Free Now)$', category: Transport > Taxi & ride-hailing}
+- {field: merchant, pattern: '^(Metro de Lisboa|Carris|Navegante|Fertagus|Lis)$', category: Transport > Public transport}
+- {field: merchant, pattern: '^EMEL$', category: Transport > Parking}
+- {field: merchant, pattern: '^(Ascendi|Via Verde|Brisa)$', category: Transport > Tolls}
+- {field: merchant, pattern: '^(Galp|Repsol|BP|Cepsa|Prio)$', category: Transport > Fuel}
+- {field: merchant, pattern: '^(TAP|Ryanair|easyJet|Tc Aero Service)\b', category: Travel > Flights}
+- {field: merchant, pattern: '^(CP|Flixbus|Rede Expressos)$', category: Travel > Trains & buses}
+- {field: merchant, pattern: '^(Booking\.com|Airbnb|Hotel|Guest House|Boutique Hotel)\b', category: Travel > Accommodation}
+- {field: merchant, pattern: '^(Netflix|Spotify|Disney|HBO|Max|Prime Video)$', category: Subscriptions > Streaming}
+- {field: merchant, pattern: '^(Anthropic|OpenAI|Torbox|Github|Notion)\b', category: Subscriptions > Software & AI}
+- {field: merchant, pattern: '^(PlayStation|Steam|Nintendo|Xbox)$', category: Subscriptions > Gaming}
+- {field: merchant, pattern: '^(Amazon Prime|Apple)$', category: Subscriptions > Other subscriptions}
+- {field: merchant, pattern: '^(Zara|Zara Home|Mango|H&M|Primark|Pull and Bear|Bershka|Uniqlo)$', category: Shopping > Clothing}
+- {field: merchant, pattern: '^(Worten|FNAC|PcComponentes|Cecotec)$', category: Shopping > Electronics}
+- {field: merchant, pattern: '^(IKEA|Leroy Merlin|Aki)$', category: Shopping > Home}
+- {field: merchant, pattern: '^(Amazon)$', category: Shopping > Online}
+- {field: merchant, pattern: '^(El Corte Inglés|Centro Comercial)\b', category: Shopping > Other shopping}
+- {field: merchant, pattern: '^Farmácia', category: Health > Pharmacy}
+- {field: merchant, pattern: '^(Decathlon)$', category: Health > Gym & sports}
+- {field: merchant, pattern: '^(NOS Cinemas|Cinema City|Ticketline|Blueticket)\b', category: Entertainment > Cinema & events}
+- {field: party, pattern: 'GINAS|GINASIO|FITNESS|GYM', category: Health > Gym & sports}
+- {field: party, pattern: 'CONDOMINIO', category: Housing > Condo fees}
+- {field: party, pattern: '^(EDP|ENDESA|GOLDENERGY|IBERDROLA|LUZBOA|GALP POWER)', category: Housing > Utilities > Electricity}
+- {field: party, pattern: '^(EPAL|SMAS|AGUAS)', category: Housing > Utilities > Water}
+- {field: party, pattern: '^(MEO|NOS COMUNICACOES|VODAFONE|NOWO|DIGI)', category: Housing > Utilities > Internet & phone}
+
+- {field: party, pattern: 'HOSPITAL|CLINICA|CLINIC|CUF|LUSIADAS|DENTAL|MEDIC', category: Health > Doctor & dentist}
+- {field: party, pattern: 'HEALTH CLUB|FITNESS|GINASIO|GYM|SOLINCA|HOLMES PLACE|VIRGIN ACTIVE', category: Health > Gym & sports}
+- {field: party, pattern: 'CINEMA', category: Entertainment > Cinema & events}
+- {field: party, pattern: 'RENT ?A ?CAR|RENTCAR|EUROPCAR|SIXT|HERTZ|AVIS', category: Travel > Car rental}
+- {field: party, pattern: 'AIRALO|HOLAFLY', category: Travel > Other travel}
+- {field: party, pattern: 'LEGO', category: Entertainment > Hobbies}
+- {field: party, pattern: 'RADIO POPULAR', category: Shopping > Electronics}
+- {field: party, pattern: 'ESTRANGEIROS|AIMA|FINANCAS|AUTORIDADE TRIBUTARIA', category: Fees & taxes > Taxes}
+- {field: party, pattern: 'PIZZ|SUSHI|BURGER|HAMB|RESTAURANTE|\bREST\b|TASCA|TABERNA|CHURRASQ|ADEGA|BISTRO|RAMEN|TAPAS|PARRILHA|MARISQUEIRA|CHICK|POKE', category: Food > Restaurants}
+- {field: party, pattern: 'CAF+E|PASTELARIA|PADARIA|GELAT|JUICE|PADARIA|BAKERY|DELI|SNACK|CHOCOLAT', category: Food > Cafés & snacks}
+
+# --- generic ---
+- {field: type, pattern: '^card_refund$', category: Refunds & reimbursements}
+- {field: type, pattern: '^(transfer|mbway)$', sign: 1, max_eur: 1000, category: Refunds & reimbursements}
+- {field: type, pattern: '^(transfer|mbway)$', sign: -1, max_eur: 1000, category: Payments to people}

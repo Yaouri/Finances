@@ -168,6 +168,64 @@ def cmd_import(args) -> None:
             print(f"  -> {o.account:<24} rows={o.fetched} new={o.new} already={o.existing} matched_other_source={o.duplicates}")
 
 
+def cmd_reprocess(args) -> None:
+    from .pipeline import reprocess, reseed
+
+    con = _con()
+    if args.reseed:
+        reseed(con)
+    st = reprocess(con)
+    print(f"{st.total} txns: manual={st.manual} transfer={st.transfer} rule={st.rule} "
+          f"uncategorised={st.uncategorised} ({st.uncategorised / max(st.total, 1):.0%})")
+
+
+def cmd_txns(args) -> None:
+    con = _con()
+    where, params = ["t.duplicate_of IS NULL"], []
+    if args.account:
+        where.append("t.account_id = ?")
+        params.append(args.account)
+    if args.uncategorised:
+        where.append("e.category_id IS NULL")
+    if args.search:
+        where.append("(t.description LIKE ? OR m.name LIKE ? OR c.path LIKE ?)")
+        params += [f"%{args.search}%"] * 3
+    if args.flow:
+        where.append("e.flow = ?")
+        params.append(args.flow)
+    rows = con.execute(
+        f"""SELECT t.id, t.booking_date, a.name acc, t.amount_cents, t.description, e.descriptor_type dtype,
+                   m.name merchant, c.path category, e.category_source src, e.transfer_group grp
+            FROM transactions t JOIN accounts a ON a.id = t.account_id
+            LEFT JOIN tx_enriched e ON e.tx_id = t.id LEFT JOIN merchants m ON m.id = e.merchant_id
+            LEFT JOIN categories c ON c.id = e.category_id
+            WHERE {' AND '.join(where)} ORDER BY t.booking_date DESC, t.id DESC LIMIT ?""",
+        (*params, args.limit),
+    ).fetchall()
+    for r in rows:
+        print(f"{r['id']:>5} {r['booking_date']} {r['acc'][:16]:<16} {r['amount_cents'] / 100:>10.2f}  "
+              f"{r['description'][:44]:<44} {r['dtype'] or '':<14} {(r['merchant'] or '')[:20]:<20} "
+              f"{r['category'] or '-'} [{r['src'] or ''}{' ' + r['grp'] if r['grp'] else ''}]")
+
+
+def cmd_summary(args) -> None:
+    con = _con()
+    rows = con.execute(
+        """SELECT substr(t.booking_date, 1, 7) month, e.flow, sum(e.my_amount_eur_cents) cents
+           FROM transactions t JOIN tx_enriched e ON e.tx_id = t.id
+           WHERE t.duplicate_of IS NULL GROUP BY 1, 2 ORDER BY 1"""
+    ).fetchall()
+    months: dict[str, dict] = {}
+    for r in rows:
+        months.setdefault(r["month"], {})[r["flow"]] = (r["cents"] or 0) / 100
+    print(f"{'month':<8} {'income':>10} {'expense':>10} {'net':>10} {'rate':>6} {'invest':>10} {'transfer':>9}")
+    for m, f in list(months.items())[-args.months:]:
+        inc, exp = f.get("income", 0), f.get("expense", 0)
+        rate = (inc + exp) / inc if inc else 0
+        print(f"{m:<8} {inc:>10.2f} {exp:>10.2f} {inc + exp:>10.2f} {rate:>6.0%} "
+              f"{f.get('investing', 0):>10.2f} {f.get('transfer', 0):>9.2f}")
+
+
 def cmd_sync(args) -> None:
     from .ingest.enablebanking.sync import sync_all
 
@@ -228,6 +286,20 @@ def main(argv: list[str] | None = None) -> None:
     i.add_argument("--account", type=int, help="target account for the main batch (default: auto)")
     i.add_argument("--dry-run", action="store_true")
     i.set_defaults(fn=cmd_import)
+
+    rp = sub.add_parser("reprocess", help="re-run parsing, transfers and categorisation")
+    rp.add_argument("--reseed", action="store_true", help="reload default taxonomy/rules (keeps your edits)")
+    rp.set_defaults(fn=cmd_reprocess)
+    t = sub.add_parser("txns", help="list transactions")
+    t.add_argument("--account", type=int)
+    t.add_argument("--uncategorised", action="store_true")
+    t.add_argument("--search")
+    t.add_argument("--flow", choices=["expense", "income", "transfer", "investing"])
+    t.add_argument("--limit", type=int, default=40)
+    t.set_defaults(fn=cmd_txns)
+    u = sub.add_parser("summary", help="monthly income / expense / savings rate")
+    u.add_argument("--months", type=int, default=12)
+    u.set_defaults(fn=cmd_summary)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")

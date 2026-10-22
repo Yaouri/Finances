@@ -4,9 +4,9 @@ import pandas as pd
 import pytest
 
 from fin.ingest import importers
+from fin.ingest.dedupe import insert_transactions
 from fin.ingest.importers import millennium_pdf, revolut, santander_meal
 from fin.ingest.importers.base import ImportFormatError
-from fin.ingest.dedupe import insert_transactions
 from fin.ingest.model import RawTxn
 
 MILLENNIUM_LINES = """\

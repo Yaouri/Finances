@@ -162,7 +162,7 @@ def consent_status(con: sqlite3.Connection, now: datetime | None = None) -> list
     for r in con.execute(
         "SELECT * FROM eb_sessions WHERE revoked_at IS NULL ORDER BY aspsp_name"
     ).fetchall():
-        until = datetime.fromisoformat(r["valid_until"].replace("Z", "+00:00"))
+        until = datetime.fromisoformat(r["valid_until"])
         if until.tzinfo is None:
             until = until.replace(tzinfo=UTC)
         days = (until - now).total_seconds() / 86400

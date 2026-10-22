@@ -1,0 +1,80 @@
+# Default category tree, seeded into the DB on first run, editable afterwards.
+# Top level = kind (expense | income | transfer | investing). Nest freely; leaves may be
+# listed as strings, intermediate nodes as mappings.
+
+expense:
+  Housing:
+    - Rent
+    - Condo fees
+    - Utilities: [Electricity, Gas, Water, Internet & phone]
+    - Maintenance & furniture
+  Food:
+    - Groceries
+    - Restaurants
+    - Delivery
+    - Cafés & snacks
+    - Canteen
+  Transport:
+    - Public transport
+    - Taxi & ride-hailing
+    - Fuel
+    - Parking
+    - Tolls
+    - Car
+  Travel:
+    - Flights
+    - Accommodation
+    - Trains & buses
+    - Currency exchange
+    - Car rental
+    - Activities
+    - Other travel
+  Shopping:
+    - Clothing
+    - Electronics
+    - Home
+    - Online
+    - Other shopping
+  Health:
+    - Pharmacy
+    - Doctor & dentist
+    - Gym & sports
+  Subscriptions:
+    - Streaming
+    - Software & AI
+    - Gaming
+    - Other subscriptions
+  Entertainment:
+    - Cinema & events
+    - Hobbies
+  Personal care: []
+  Gifts & donations: []
+  Education: []
+  Insurance: []
+  Cash:
+    - ATM withdrawal
+  Fees & taxes:
+    - Bank fees
+    - Stamp duty
+    - FX & card fees
+    - Taxes
+  Payments to people: []
+  # positive amounts here reduce spending (refunds, friends/partner paying their share)
+  Refunds & reimbursements: []
+  Uncategorised: []
+
+income:
+  Salary: []
+  Meal allowance: []
+  Interest: []
+  Tax refund: []
+  Gifts received: []
+  Other income: []
+
+transfer:
+  Internal transfer: []
+  Partner contribution: []
+
+investing:
+  Brokerage deposit: []
+  Brokerage withdrawal: []

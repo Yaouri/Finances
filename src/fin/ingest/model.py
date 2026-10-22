@@ -8,7 +8,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 
@@ -43,7 +43,7 @@ def to_cents(amount: str | float | Decimal) -> int:
         elif "," in s:
             s = s.replace(",", ".")
         d = Decimal(s)
-    return int((d * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return int((d * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 def norm_text(s: str | None) -> str:

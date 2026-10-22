@@ -20,7 +20,7 @@ def detect(path: Path) -> bool:
         return False
     try:
         head = _read(path).head(10).fillna("").astype(str).agg(" ".join, axis=1).str.cat(sep=" ")
-    except Exception:
+    except Exception:  # noqa: BLE001 - detection must never raise
         return False
     return "Movimentos de Cartão" in head and "Data Operação" in head
 

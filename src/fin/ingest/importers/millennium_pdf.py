@@ -33,7 +33,7 @@ def detect(path: Path) -> bool:
     try:
         with pdfplumber.open(path) as pdf:
             text = pdf.pages[0].extract_text() or ""
-    except Exception:
+    except Exception:  # noqa: BLE001 - detection must never raise
         return False
     return "EXTRATO COMBINADO" in text and "BCOMPTPL" in text
 

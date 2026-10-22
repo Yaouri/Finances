@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS rules (
     field           TEXT NOT NULL DEFAULT 'description',  -- description | merchant | counterparty_name | counterparty_iban | descriptor_type
     pattern         TEXT NOT NULL,            -- case-insensitive regex
     account_id      INTEGER REFERENCES accounts(id),
+    account_kind    TEXT,                     -- restrict to accounts of this kind (e.g. meal)
     sign            INTEGER,                  -- -1 outflow, 1 inflow, NULL any
     min_cents       INTEGER,
     max_cents       INTEGER,

@@ -10,8 +10,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
 _SCHEMA = Path(__file__).with_name("schema.sql")
+
+# Incremental migrations for DBs created by older versions. schema.sql always describes the
+# latest shape, so a fresh DB runs it and jumps straight to SCHEMA_VERSION.
+MIGRATIONS: dict[int, str] = {
+    2: "ALTER TABLE rules ADD COLUMN account_kind TEXT;",
+}
+SCHEMA_VERSION = max(MIGRATIONS)
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -26,8 +32,12 @@ def connect(path: Path | str) -> sqlite3.Connection:
 
 def init(con: sqlite3.Connection) -> None:
     (version,) = con.execute("PRAGMA user_version").fetchone()
-    if version < SCHEMA_VERSION:
+    if version == 0:
         con.executescript(_SCHEMA.read_text(encoding="utf-8"))
+    else:
+        for v in sorted(k for k in MIGRATIONS if k > version):
+            con.executescript(MIGRATIONS[v])
+    if version < SCHEMA_VERSION:
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
 

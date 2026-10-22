@@ -110,4 +110,4 @@ def import_file(con: sqlite3.Connection, path: Path, account_id: int | None = No
     return outcomes
 
 
-__all__ = ["import_file", "detect", "ImportFormatError"]
+__all__ = ["ImportFormatError", "detect", "import_file"]
