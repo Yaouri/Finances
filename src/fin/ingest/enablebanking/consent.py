@@ -63,6 +63,8 @@ def start(
     valid_until = (datetime.now(UTC) + timedelta(seconds=seconds) - timedelta(minutes=10)).isoformat()
     state = secrets.token_urlsafe(24)
     resp = client.start_auth(aspsp["name"], aspsp["country"], valid_until, redirect_url, state)
+    # only the latest attempt per bank stays valid
+    con.execute("DELETE FROM eb_pending_auth WHERE aspsp_name = ?", (aspsp["name"],))
     con.execute(
         "INSERT INTO eb_pending_auth (state, aspsp_name, aspsp_country, valid_until, auth_url) VALUES (?,?,?,?,?)",
         (state, aspsp["name"], aspsp["country"], valid_until, resp["url"]),
@@ -80,21 +82,32 @@ def _guess_kind(acc: dict) -> str:
     text = f"{acc.get('name') or ''} {acc.get('product') or ''} {acc.get('details') or ''}".lower()
     if acc.get("cash_account_type") == "SVGS" or "saving" in text or "poupan" in text:
         return "savings"
-    if "joint" in text or "conjunta" in text:
+    # Revolut names joint accounts after both holders: "A & B"
+    if "joint" in text or "conjunta" in text or " & " in text:
         return "joint"
     return "current"
 
 
-def finish(con: sqlite3.Connection, client: EnableBankingClient, url_or_code: str) -> list[dict]:
+def finish(
+    con: sqlite3.Connection, client: EnableBankingClient, url_or_code: str, bank: str | None = None
+) -> list[dict]:
     code, state = parse_callback(url_or_code)
     if state is not None:
         pending = con.execute("SELECT * FROM eb_pending_auth WHERE state = ?", (state,)).fetchone()
         if pending is None:
             raise ConsentError("unknown state — start the connection again (possible stale or forged redirect)")
     else:
-        pending = con.execute("SELECT * FROM eb_pending_auth ORDER BY created_at DESC LIMIT 1").fetchone()
-        if pending is None:
+        # bare code (e.g. typed over from a phone): only unambiguous with one pending bank
+        rows = con.execute(
+            "SELECT * FROM eb_pending_auth WHERE ? IS NULL OR aspsp_name LIKE '%' || ? || '%'",
+            (bank, bank),
+        ).fetchall()
+        if not rows:
             raise ConsentError("no pending connection; run connect first")
+        if len(rows) > 1:
+            names = ", ".join(r["aspsp_name"] for r in rows)
+            raise ConsentError(f"several pending connections ({names}); paste the full URL or pass --bank")
+        pending = rows[0]
 
     sess = client.create_session(code)
     session_id = sess["session_id"]

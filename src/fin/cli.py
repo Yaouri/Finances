@@ -51,14 +51,23 @@ def cmd_eb_connect(args) -> None:
     s = get_settings()
     with make_client(s) as c:
         url = consent.start(_con(), c, args.bank, args.country, s.eb_redirect_url, args.days)
-    print("Open this URL and authorise at your bank:\n")
+    if args.qr:
+        import qrcode
+
+        qr = qrcode.QRCode(border=2)
+        qr.add_data(url)
+        qr.print_ascii(invert=True)
+        print("Scan with your phone and approve in the bank's app.\n")
+    else:
+        print("Open this URL and authorise at your bank:\n")
     print(url)
     print(
-        "\nAfter approving, your browser lands on "
-        f"{s.eb_redirect_url}?code=... (the page itself may fail to load — that's expected)."
-        "\nCopy the full URL from the address bar and run:\n\n  uv run fin eb finish \"<pasted url>\"\n"
+        "\nAfter approving, the browser lands on "
+        f"{s.eb_redirect_url}?code=... (the page itself fails to load — that's expected)."
+        "\nCopy the full URL from the address bar (on a phone: share it to yourself) and run:"
+        "\n\n  uv run fin eb finish \"<pasted url>\"\n"
     )
-    if not args.no_browser:
+    if not args.no_browser and not args.qr:
         webbrowser.open(url)
 
 
@@ -67,7 +76,7 @@ def cmd_eb_finish(args) -> None:
     from .ingest.enablebanking.sync import make_client
 
     with make_client(get_settings()) as c:
-        linked = consent.finish(_con(), c, args.url)
+        linked = consent.finish(_con(), c, args.url, bank=args.bank)
     print(f"Linked {len(linked)} account(s):")
     for a in linked:
         r = a["raw"]
@@ -104,6 +113,38 @@ def cmd_accounts_set(args) -> None:
     cmd_accounts(argparse.Namespace(raw=False))
 
 
+def cmd_account_add(args) -> None:
+    con = _con()
+    slug = "".join(ch if ch.isalnum() else "-" for ch in f"{args.institution}-{args.name}".lower())
+    con.execute(
+        """INSERT INTO accounts (key, name, institution, currency, kind, is_joint, my_share, source)
+           VALUES (?,?,?,?,?,?,?, 'manual')""",
+        (f"manual:{slug}", args.name, args.institution, args.currency, args.kind,
+         int(args.kind == "joint"), 0.5 if args.kind == "joint" else 1.0),
+    )
+    con.commit()
+    cmd_accounts(argparse.Namespace(raw=False))
+
+
+def cmd_balance_set(args) -> None:
+    from datetime import date
+
+    from .ingest.model import to_cents
+
+    con = _con()
+    acc = con.execute("SELECT currency FROM accounts WHERE id = ?", (args.id,)).fetchone()
+    if acc is None:
+        sys.exit(f"no account {args.id}")
+    con.execute(
+        """INSERT INTO balances (account_id, as_of, balance_type, amount_cents, currency)
+           VALUES (?,?, 'MANUAL', ?, ?)
+           ON CONFLICT(account_id, as_of, balance_type) DO UPDATE SET amount_cents = excluded.amount_cents""",
+        (args.id, args.date or date.today().isoformat(), to_cents(args.amount), acc["currency"]),
+    )
+    con.commit()
+    print("ok")
+
+
 def cmd_sync(args) -> None:
     from .ingest.enablebanking.sync import sync_all
 
@@ -130,9 +171,11 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--country", default="PT")
     c.add_argument("--days", type=int, help="cap consent length (default: bank maximum)")
     c.add_argument("--no-browser", action="store_true")
+    c.add_argument("--qr", action="store_true", help="print a QR code to open the link on your phone")
     c.set_defaults(fn=cmd_eb_connect)
-    f = eb.add_parser("finish", help="complete consent with the redirected URL")
+    f = eb.add_parser("finish", help="complete consent with the redirected URL (or bare code)")
     f.add_argument("url")
+    f.add_argument("--bank", help="disambiguate a bare code when several banks are pending")
     f.set_defaults(fn=cmd_eb_finish)
 
     a = sub.add_parser("accounts", help="list accounts")
@@ -145,6 +188,17 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--joint", type=lambda v: v.lower() in ("1", "true", "yes"))
     s.add_argument("--share", type=float)
     s.set_defaults(fn=cmd_accounts_set)
+    n = sub.add_parser("account-add", help="add a manual account (e.g. one PSD2 doesn't expose)")
+    n.add_argument("--name", required=True)
+    n.add_argument("--institution", required=True)
+    n.add_argument("--kind", default="current", choices=["current", "savings", "joint", "meal", "investment"])
+    n.add_argument("--currency", default="EUR")
+    n.set_defaults(fn=cmd_account_add)
+    m = sub.add_parser("balance-set", help="record a balance by hand")
+    m.add_argument("id", type=int)
+    m.add_argument("amount")
+    m.add_argument("--date", help="YYYY-MM-DD (default today)")
+    m.set_defaults(fn=cmd_balance_set)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")

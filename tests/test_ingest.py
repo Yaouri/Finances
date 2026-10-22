@@ -133,3 +133,48 @@ def test_cross_source_requires_same_amount_and_window(con, account):
     insert_transactions(con, account, "eb", [_t("2026-01-10", -1000, "X")])
     st = insert_transactions(con, account, "csv:revolut", [_t("2026-01-10", -1001, "X"), _t("2026-01-20", -1000, "X")])
     assert st.cross_source_dupes == 0 and st.new == 2
+
+
+class _FakeEB:
+    def __init__(self, accounts):
+        self.accounts = accounts
+
+    def create_session(self, code):
+        return {"session_id": f"s-{code}", "access": {"valid_until": "2027-01-01T00:00:00+00:00"},
+                "aspsp": {"name": "Revolut", "country": "PT"}, "accounts": self.accounts}
+
+
+def _pending(con, state, bank):
+    con.execute("INSERT INTO eb_pending_auth (state, aspsp_name, aspsp_country, valid_until, auth_url) "
+                "VALUES (?, ?, 'PT', '2027-01-01T00:00:00+00:00', 'u')", (state, bank))
+
+
+def test_finish_upserts_by_iban_and_detects_joint(con):
+    from fin.ingest.enablebanking.consent import finish
+
+    accs = [{"uid": "u1", "account_id": {"iban": "PT50 1"}, "identification_hash": "h1", "name": "Me", "currency": "EUR",
+             "cash_account_type": "CACC"},
+            {"uid": "u2", "account_id": {"iban": "PT502"}, "identification_hash": "h2", "name": "ME & YOU",
+             "currency": "EUR", "cash_account_type": "CACC"}]
+    _pending(con, "st1", "Revolut")
+    finish(con, _FakeEB(accs), "https://localhost/cb?code=c1&state=st1")
+    con.execute("UPDATE accounts SET name='Renamed' WHERE key='iban:PT501'")
+    # re-consent: new uids, same IBANs -> same rows, user edits kept
+    accs2 = [{**a, "uid": a["uid"] + "b"} for a in accs]
+    _pending(con, "st2", "Revolut")
+    finish(con, _FakeEB(accs2), "https://localhost/cb?code=c2&state=st2")
+    rows = con.execute("SELECT key, name, kind, is_joint, my_share, eb_uid FROM accounts ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [("iban:PT501", "Renamed", "current", 0, 1.0, "u1b"),
+                                        ("iban:PT502", "ME & YOU", "joint", 1, 0.5, "u2b")]
+    assert con.execute("SELECT count(*) FROM eb_sessions WHERE revoked_at IS NULL").fetchone()[0] == 1
+
+
+def test_finish_bare_code_needs_unambiguous_bank(con):
+    from fin.ingest.enablebanking.consent import finish
+
+    _pending(con, "a", "Millennium BCP")
+    _pending(con, "b", "Santander Totta")
+    with pytest.raises(ConsentError):
+        finish(con, _FakeEB([]), "somecode")
+    finish(con, _FakeEB([]), "somecode", bank="millennium")
+    assert [r[0] for r in con.execute("SELECT aspsp_name FROM eb_pending_auth")] == ["Santander Totta"]
