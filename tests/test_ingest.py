@@ -178,3 +178,11 @@ def test_finish_bare_code_needs_unambiguous_bank(con):
         finish(con, _FakeEB([]), "somecode")
     finish(con, _FakeEB([]), "somecode", bank="millennium")
     assert [r[0] for r in con.execute("SELECT aspsp_name FROM eb_pending_auth")] == ["Santander Totta"]
+
+
+def test_exact_match_claims_before_fuzzy(con, account):
+    # API only has the 04-22 canteen charge; the PDF has 04-21 and 04-22 (same amount)
+    insert_transactions(con, account, "eb", [_t("2026-04-22", -640, "COMPRA 3043 GERTAL", external_id="e1")])
+    st = insert_transactions(con, account, "pdf:millennium",
+                             [_t("2026-04-21", -640, "COMPRA 3043 GERTAL"), _t("2026-04-22", -640, "COMPRA 3043 GERTAL")])
+    assert (st.existing, st.new, st.cross_source_dupes) == (1, 1, 0)

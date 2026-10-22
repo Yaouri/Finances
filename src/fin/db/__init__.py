@@ -16,6 +16,15 @@ _SCHEMA = Path(__file__).with_name("schema.sql")
 # latest shape, so a fresh DB runs it and jumps straight to SCHEMA_VERSION.
 MIGRATIONS: dict[int, str] = {
     2: "ALTER TABLE rules ADD COLUMN account_kind TEXT;",
+    3: """
+        ALTER TABLE lots ADD COLUMN trade_time TEXT;
+        ALTER TABLE lots ADD COLUMN total_eur REAL;
+        ALTER TABLE lots ADD COLUMN kind TEXT NOT NULL DEFAULT 'trade';
+        ALTER TABLE lots ADD COLUMN superseded INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE IF NOT EXISTS instruments (
+            isin TEXT PRIMARY KEY, name TEXT NOT NULL, ticker TEXT, currency TEXT NOT NULL DEFAULT 'EUR',
+            asset_class TEXT NOT NULL DEFAULT 'equity');
+    """,
 }
 SCHEMA_VERSION = max(MIGRATIONS)
 

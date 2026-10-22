@@ -204,9 +204,18 @@ CREATE TABLE IF NOT EXISTS settings (
     value           TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS instruments (
+    isin            TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    ticker          TEXT,                     -- yfinance symbol (EUR listing preferred, e.g. VWCE.DE)
+    currency        TEXT NOT NULL DEFAULT 'EUR',
+    asset_class     TEXT NOT NULL DEFAULT 'equity'
+);
+
 CREATE TABLE IF NOT EXISTS lots (
     id              INTEGER PRIMARY KEY,
     trade_date      TEXT NOT NULL,            -- original acquisition date (kept for in-specie transfers)
+    trade_time      TEXT,
     isin            TEXT NOT NULL,
     ticker          TEXT NOT NULL,            -- yfinance symbol, e.g. VWCE.DE
     quantity        REAL NOT NULL,            -- negative for sells
@@ -217,6 +226,9 @@ CREATE TABLE IF NOT EXISTS lots (
     source          TEXT NOT NULL DEFAULT 'manual',   -- manual | degiro_csv
     external_id     TEXT UNIQUE,              -- DEGIRO order id for idempotent imports
     locked          INTEGER NOT NULL DEFAULT 0,       -- manual edits win over CSV re-imports
+    total_eur       REAL,                     -- signed EUR cash flow incl. fees (negative = buy)
+    kind            TEXT NOT NULL DEFAULT 'trade',    -- trade | transfer_in
+    superseded      INTEGER NOT NULL DEFAULT 0,       -- 1 = replaced by original-cost lots
     note            TEXT
 );
 

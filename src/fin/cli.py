@@ -149,10 +149,18 @@ def cmd_import(args) -> None:
     from pathlib import Path
 
     from .ingest import importers
+    from .invest import lots
 
     con = _con()
     for f in args.files:
         path = Path(f)
+        if lots.detect(path):
+            if args.dry_run:
+                rows = lots.parse_degiro(path)
+                print(f"{path.name}: degiro lots rows={len(rows)} transfers_in={sum(r['kind'] == 'transfer_in' for r in rows)}")
+            else:
+                print(f"{path.name}: {lots.import_degiro(con, path)}")
+            continue
         fmt = importers.detect(path)
         if args.dry_run:
             res = fmt.parse(path)
@@ -211,19 +219,71 @@ def cmd_txns(args) -> None:
 def cmd_summary(args) -> None:
     con = _con()
     rows = con.execute(
-        """SELECT substr(t.booking_date, 1, 7) month, e.flow, sum(e.my_amount_eur_cents) cents
+        """SELECT substr(t.booking_date, 1, 7) month,
+                  CASE WHEN EXISTS (SELECT 1 FROM tx_tags x JOIN tags g ON g.id = x.tag_id
+                                    WHERE x.tx_id = t.id AND g.name = 'one-off') THEN 'one-off' ELSE e.flow END flow,
+                  sum(e.my_amount_eur_cents) cents
            FROM transactions t JOIN tx_enriched e ON e.tx_id = t.id
            WHERE t.duplicate_of IS NULL GROUP BY 1, 2 ORDER BY 1"""
     ).fetchall()
     months: dict[str, dict] = {}
     for r in rows:
         months.setdefault(r["month"], {})[r["flow"]] = (r["cents"] or 0) / 100
-    print(f"{'month':<8} {'income':>10} {'expense':>10} {'net':>10} {'rate':>6} {'invest':>10} {'transfer':>9}")
+    print(f"{'month':<8} {'income':>10} {'expense':>10} {'net':>10} {'rate':>6} {'invest':>11} {'one-off':>10}")
     for m, f in list(months.items())[-args.months:]:
         inc, exp = f.get("income", 0), f.get("expense", 0)
         rate = (inc + exp) / inc if inc else 0
         print(f"{m:<8} {inc:>10.2f} {exp:>10.2f} {inc + exp:>10.2f} {rate:>6.0%} "
-              f"{f.get('investing', 0):>10.2f} {f.get('transfer', 0):>9.2f}")
+              f"{f.get('investing', 0):>11.2f} {f.get('one-off', 0):>10.2f}")
+
+
+def cmd_invest(args) -> None:
+    from .invest import lots, portfolio, prices
+
+    con = _con()
+    if args.action == "refresh":
+        print(prices.refresh(con))
+    elif args.action == "lots":
+        for r in con.execute("SELECT * FROM lots ORDER BY trade_date, id"):
+            flag = " SUPERSEDED" if r["superseded"] else (" [transfer-in]" if r["kind"] == "transfer_in" else "")
+            print(f"{r['id']:>4} {r['trade_date']} {r['broker']:<14} {r['ticker']:<8} {r['quantity']:>8g} "
+                  f"@ {r['price']:>9.4f} {r['currency']} fees={r['fees']:.2f} total={r['total_eur']:>10.2f}{flag}")
+    elif args.action == "add":
+        print("lot", lots.add_lot(con, trade_date=args.date, isin=args.isin, quantity=args.qty, price=args.price,
+                                  fees=args.fees, broker=args.broker, note=args.note))
+    elif args.action == "supersede":
+        con.execute("UPDATE lots SET superseded = 1, locked = 1 WHERE id = ?", (args.id,))
+        con.commit()
+    s = portfolio.summary(con)
+    print(f"\nvalue {s['value_eur']:,.2f}  invested {s['invested_eur']:,.2f}  unrealised {s['unrealised_eur']:+,.2f} "
+          f"({s['unrealised_pct']:+.1%})  realised {s['realised_eur']:+,.2f}  fees {s['fees_eur']:,.2f}")
+    for p in s["positions"]:
+        print(f"  {p.name:<32} {p.quantity:>8g} @ {p.price or 0:>8.2f} ({p.price_date})  value {p.value_eur or 0:>11,.2f}  "
+              f"cost {p.cost_eur:>11,.2f}  {p.unrealised_eur or 0:+,.2f}")
+    if s["has_transfer_placeholder"]:
+        print("\n! An in-specie transfer still uses market value as cost. Add the original lots "
+              "(fin invest add ...) and then `fin invest supersede <transfer lot id>`.")
+
+
+def cmd_categorize(args) -> None:
+    from .categorize.manual import set_category
+    from .pipeline import reprocess
+
+    con = _con()
+    rule = set_category(con, args.id, args.category, note=args.note, tags=tuple(args.tag or ()),
+                        my_share=args.share, make_rule=args.rule)
+    reprocess(con)
+    print("ok" + (f" (rule {rule} added)" if rule else ""))
+
+
+def cmd_check(args) -> None:
+    from .quality import balance_gaps
+
+    gaps = balance_gaps(_con())
+    if not gaps:
+        print("all balances reconcile")
+    for g in gaps:
+        print(f"{g.account:<24} {g.from_date} -> {g.to_date}  unexplained {g.delta_cents / 100:+,.2f}")
 
 
 def cmd_sync(args) -> None:
@@ -300,6 +360,29 @@ def main(argv: list[str] | None = None) -> None:
     u = sub.add_parser("summary", help="monthly income / expense / savings rate")
     u.add_argument("--months", type=int, default=12)
     u.set_defaults(fn=cmd_summary)
+
+    sub.add_parser("check", help="reconcile balances against transactions").set_defaults(fn=cmd_check)
+
+    cz = sub.add_parser("categorize", help="set a transaction's category / tags / note")
+    cz.add_argument("id", type=int)
+    cz.add_argument("category", nargs="?", help='e.g. "Food > Groceries"')
+    cz.add_argument("--tag", action="append", help="repeatable; 'one-off' excludes it from savings rate")
+    cz.add_argument("--note")
+    cz.add_argument("--share", type=float, help="your share (joint account)")
+    cz.add_argument("--rule", action="store_true", help="also create a merchant rule")
+    cz.set_defaults(fn=cmd_categorize)
+
+    iv = sub.add_parser("invest", help="investments: refresh prices, list/add lots, summary")
+    iv.add_argument("action", nargs="?", default="summary", choices=["summary", "refresh", "lots", "add", "supersede"])
+    iv.add_argument("--date")
+    iv.add_argument("--isin")
+    iv.add_argument("--qty", type=float)
+    iv.add_argument("--price", type=float)
+    iv.add_argument("--fees", type=float, default=0.0)
+    iv.add_argument("--broker", default="Millennium BCP")
+    iv.add_argument("--note")
+    iv.add_argument("--id", type=int)
+    iv.set_defaults(fn=cmd_invest)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")
