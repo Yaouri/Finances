@@ -1,0 +1,14 @@
+[browser]
+# keep everything local: no usage statistics
+gatherUsageStats = false
+
+[server]
+headless = true
+port = 8501
+runOnSave = false
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+font = "sans-serif"

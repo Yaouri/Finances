@@ -51,3 +51,28 @@ def set_category(
         rule_id = R.add_rule(con, "merchant", f"^{re.escape(m['name'])}$", cat, name=f"from tx {tx_id}")
     con.commit()
     return rule_id
+
+
+def set_tags(con: sqlite3.Connection, tx_id: int, tags: list[str]) -> None:
+    """Replace the manual tags of a transaction (rule-applied tags are left alone)."""
+    con.execute("DELETE FROM tx_tags WHERE tx_id = ? AND source = 'manual'", (tx_id,))
+    for t in {t.strip() for t in tags if t.strip()}:
+        con.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
+        con.execute("INSERT OR IGNORE INTO tx_tags (tx_id, tag_id, source) SELECT ?, id, 'manual' FROM tags WHERE name=?",
+                    (tx_id, t))
+    con.commit()
+
+
+def tag_range(con: sqlite3.Connection, tag: str, start: str, end: str, account_ids: list[int],
+              flows: tuple[str, ...] = ("expense",)) -> int:
+    """Tag every transaction in a date range (e.g. a trip). Returns how many were tagged."""
+    con.execute("INSERT OR IGNORE INTO tags (name, kind) VALUES (?, 'trip')", (tag,))
+    q = f"""INSERT OR IGNORE INTO tx_tags (tx_id, tag_id, source)
+            SELECT t.id, (SELECT id FROM tags WHERE name = ?), 'manual'
+            FROM transactions t JOIN tx_enriched e ON e.tx_id = t.id
+            WHERE t.duplicate_of IS NULL AND t.booking_date BETWEEN ? AND ?
+              AND e.flow IN ({','.join('?' * len(flows))})
+              {"AND t.account_id IN (" + ','.join('?' * len(account_ids)) + ")" if account_ids else ""}"""
+    n = con.execute(q, (tag, start, end, *flows, *account_ids)).rowcount
+    con.commit()
+    return n

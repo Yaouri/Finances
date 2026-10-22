@@ -155,7 +155,9 @@ CREATE TABLE IF NOT EXISTS tx_enriched (
     transfer_group  TEXT,                     -- shared id for the two legs of an internal transfer
     flow            TEXT,                     -- expense | income | transfer | investing
     amount_eur_cents INTEGER,
-    my_amount_eur_cents INTEGER               -- after joint share
+    my_amount_eur_cents INTEGER,              -- after joint share
+    ml_category_id  INTEGER REFERENCES categories(id),  -- low-confidence suggestion for the review queue
+    ml_confidence   REAL
 );
 
 CREATE TABLE IF NOT EXISTS tx_user (
@@ -230,6 +232,16 @@ CREATE TABLE IF NOT EXISTS lots (
     kind            TEXT NOT NULL DEFAULT 'trade',    -- trade | transfer_in
     superseded      INTEGER NOT NULL DEFAULT 0,       -- 1 = replaced by original-cost lots
     note            TEXT
+);
+
+CREATE TABLE IF NOT EXISTS invest_income (
+    id              INTEGER PRIMARY KEY,
+    date            TEXT NOT NULL,
+    isin            TEXT,
+    kind            TEXT NOT NULL,            -- dividend | dividend_tax | interest
+    amount          REAL NOT NULL,            -- signed, in `currency`
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS prices (

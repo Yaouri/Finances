@@ -1,0 +1,14 @@
+services:
+  fin:
+    build: .
+    image: fin:latest
+    restart: unless-stopped
+    env_file: .env            # EB_APP_ID, EB_KEY_PATH=secrets/<app-id>.pem, EB_REDIRECT_URL
+    environment:
+      FIN_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+    ports:
+      # bound to localhost only; for phone access put Tailscale (or similar) in front instead of opening it
+      - "127.0.0.1:8501:8501"

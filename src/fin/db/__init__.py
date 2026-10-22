@@ -25,6 +25,15 @@ MIGRATIONS: dict[int, str] = {
             isin TEXT PRIMARY KEY, name TEXT NOT NULL, ticker TEXT, currency TEXT NOT NULL DEFAULT 'EUR',
             asset_class TEXT NOT NULL DEFAULT 'equity');
     """,
+    4: """
+        CREATE TABLE IF NOT EXISTS invest_income (
+            id INTEGER PRIMARY KEY, date TEXT NOT NULL, isin TEXT, kind TEXT NOT NULL,
+            amount REAL NOT NULL, currency TEXT NOT NULL, source TEXT NOT NULL);
+    """,
+    5: """
+        ALTER TABLE tx_enriched ADD COLUMN ml_category_id INTEGER REFERENCES categories(id);
+        ALTER TABLE tx_enriched ADD COLUMN ml_confidence REAL;
+    """,
 }
 SCHEMA_VERSION = max(MIGRATIONS)
 

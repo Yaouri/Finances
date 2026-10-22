@@ -26,6 +26,7 @@ class Stats:
     manual: int = 0
     transfer: int = 0
     rule: int = 0
+    ml: int = 0
     uncategorised: int = 0
 
 
@@ -83,7 +84,7 @@ def reprocess(con: sqlite3.Connection) -> Stats:
     marks = transfers.detect(legs, own_ibans, owners)
 
     st = Stats(total=len(items))
-    enriched, rule_tags = [], []
+    rows_out, rule_tags = {}, []
     for r, acc, p, key, mid, ctx in items:
         cat, source, conf, rule_id, group = None, "none", None, None, None
         mark = marks.get(r["id"])
@@ -101,25 +102,34 @@ def reprocess(con: sqlite3.Connection) -> Stats:
                 mid = resolver.merchant_id(rule.merchant_name)
             rule_tags += [(r["id"], t) for t in rule.tags]
             st.rule += 1
-        else:
-            st.uncategorised += 1
         if r["u_merchant"]:
             mid = resolver.merchant_id(r["u_merchant"])
+        rows_out[r["id"]] = {
+            "r": r, "acc": acc, "type": p.type, "key": key or None, "mid": mid, "cat": cat, "source": source,
+            "conf": conf, "rule_id": rule_id, "group": group, "ml_cat": None, "ml_conf": None,
+            "merchant": ctx["merchant"],
+        }
 
+    _ml_pass(rows_out, kinds, st)
+
+    enriched = []
+    for tx_id, o in rows_out.items():
+        r, acc, cat = o["r"], o["acc"], o["cat"]
         flow = kinds.get(cat) if cat else ("expense" if r["amount_cents"] < 0 else "income")
         share = r["u_share"] if r["u_share"] is not None else (acc["my_share"] if acc["is_joint"] else 1.0)
         amount_eur = r["amount_cents"] if r["currency"] == "EUR" else None  # FX conversion: TODO with fx_rates
         enriched.append((
-            r["id"], p.type, key or None, mid, cat, source, conf, rule_id, group, flow, amount_eur,
-            round(amount_eur * share) if amount_eur is not None else None,
+            tx_id, o["type"], o["key"], o["mid"], cat, o["source"], o["conf"], o["rule_id"], o["group"], flow,
+            amount_eur, round(amount_eur * share) if amount_eur is not None else None, o["ml_cat"], o["ml_conf"],
         ))
 
     with tx(con):
         con.execute("DELETE FROM tx_enriched")
         con.executemany(
             """INSERT INTO tx_enriched (tx_id, descriptor_type, merchant_key, merchant_id, category_id,
-                   category_source, confidence, rule_id, transfer_group, flow, amount_eur_cents, my_amount_eur_cents)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   category_source, confidence, rule_id, transfer_group, flow, amount_eur_cents, my_amount_eur_cents,
+                   ml_category_id, ml_confidence)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             enriched,
         )
         con.execute("DELETE FROM tx_tags WHERE source = 'rule'")
@@ -130,6 +140,32 @@ def reprocess(con: sqlite3.Connection) -> Stats:
                 (tx_id, tag),
             )
     return st
+
+
+def _ml_pass(rows: dict, kinds: dict, st: Stats) -> None:
+    """Train on what rules/manual labelled this run; fill or suggest the rest."""
+    import pandas as pd
+
+    from .categorize import ml
+
+    def frame(ids):
+        return pd.DataFrame([{
+            "merchant": rows[i]["merchant"], "description": rows[i]["r"]["description"], "type": rows[i]["type"],
+            "account_kind": rows[i]["acc"]["kind"], "amount_cents": rows[i]["r"]["amount_cents"],
+            "category_id": rows[i]["cat"], "source": rows[i]["source"],
+        } for i in ids], index=list(ids))
+
+    labelled = [i for i, o in rows.items() if o["source"] in ("manual", "rule") and kinds.get(o["cat"]) in ("expense", "income")]
+    todo = [i for i, o in rows.items() if o["cat"] is None]
+    preds = ml.train_and_predict(frame(labelled), frame(todo)) if labelled and todo else {}
+    for i, pr in preds.items():
+        o = rows[i]
+        if pr.confidence >= ml.ACCEPT:
+            o["cat"], o["source"], o["conf"] = pr.category_id, "ml", pr.confidence
+            st.ml += 1
+        else:
+            o["ml_cat"], o["ml_conf"] = pr.category_id, pr.confidence
+    st.uncategorised = sum(1 for o in rows.values() if o["cat"] is None)
 
 
 def reseed(con: sqlite3.Connection) -> None:

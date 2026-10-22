@@ -50,6 +50,11 @@
 - {field: party, pattern: 'CINEMA', category: Entertainment > Cinema & events}
 - {field: party, pattern: 'RENT ?A ?CAR|RENTCAR|EUROPCAR|SIXT|HERTZ|AVIS', category: Travel > Car rental}
 - {field: party, pattern: 'AIRALO|HOLAFLY', category: Travel > Other travel}
+- {field: party, pattern: 'EMPRESA PORTUGUESA DAS', category: Housing > Utilities > Water}
+- {field: party, pattern: 'LINHAS AEREAS|AIRLINES|AIRWAYS|AIR EUROPA|VUELING|WIZZ', category: Travel > Flights}
+- {field: party, pattern: 'MASSIMO DUTTI|\bCOS\b|SFERA|LEFTIES|SPRINGFIELD|STRADIVARIUS|OYSHO|PULL', category: Shopping > Clothing}
+- {field: party, pattern: 'PLAYTOMIC|PADEL|TENNIS|TENIS', category: Health > Gym & sports}
+- {field: party, pattern: 'PAG ESTADO|PAGAMENTO AO ESTADO', category: Fees & taxes > Taxes}
 - {field: party, pattern: 'LEGO', category: Entertainment > Hobbies}
 - {field: party, pattern: 'RADIO POPULAR', category: Shopping > Electronics}
 - {field: party, pattern: 'ESTRANGEIROS|AIMA|FINANCAS|AUTORIDADE TRIBUTARIA', category: Fees & taxes > Taxes}

@@ -149,11 +149,14 @@ def cmd_import(args) -> None:
     from pathlib import Path
 
     from .ingest import importers
-    from .invest import lots
+    from .invest import degiro_account, lots
 
     con = _con()
     for f in args.files:
         path = Path(f)
+        if degiro_account.detect(path):
+            print(f"{path.name}: {degiro_account.import_account(con, path)}")
+            continue
         if lots.detect(path):
             if args.dry_run:
                 rows = lots.parse_degiro(path)
@@ -183,7 +186,7 @@ def cmd_reprocess(args) -> None:
     if args.reseed:
         reseed(con)
     st = reprocess(con)
-    print(f"{st.total} txns: manual={st.manual} transfer={st.transfer} rule={st.rule} "
+    print(f"{st.total} txns: manual={st.manual} transfer={st.transfer} rule={st.rule} ml={st.ml} "
           f"uncategorised={st.uncategorised} ({st.uncategorised / max(st.total, 1):.0%})")
 
 
@@ -286,6 +289,19 @@ def cmd_check(args) -> None:
         print(f"{g.account:<24} {g.from_date} -> {g.to_date}  unexplained {g.delta_cents / 100:+,.2f}")
 
 
+def cmd_refresh(args) -> None:
+    from .service import refresh
+
+    res = refresh(_con(), get_settings(), force=args.force, banks=not args.no_banks)
+    for r in res.banks:
+        print(f"{r.account:<28} {r.status:<8} new={r.new} dupes={r.duplicates} {r.message}")
+    print(f"prices: {res.prices}")
+    st = res.stats
+    print(f"categorised {st.total - st.uncategorised}/{st.total} (ml={st.ml}) · new alerts: {res.new_alerts}")
+    for e in res.errors:
+        print("ERROR", e)
+
+
 def cmd_sync(args) -> None:
     from .ingest.enablebanking.sync import sync_all
 
@@ -383,6 +399,11 @@ def main(argv: list[str] | None = None) -> None:
     iv.add_argument("--note")
     iv.add_argument("--id", type=int)
     iv.set_defaults(fn=cmd_invest)
+
+    rf = sub.add_parser("refresh", help="bank sync + prices + reprocess + alerts (what the app button does)")
+    rf.add_argument("--force", action="store_true")
+    rf.add_argument("--no-banks", action="store_true", help="skip bank calls (prices/reprocess only)")
+    rf.set_defaults(fn=cmd_refresh)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")
