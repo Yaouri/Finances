@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from itertools import pairwise
 
 # snapshot types that represent booked balances (ITAV etc. include pending/holds)
 BOOKED = ("STATEMENT", "CLBD", "MANUAL", "ITBD")
@@ -30,7 +31,7 @@ def balance_gaps(con: sqlite3.Connection) -> list[Gap]:
                 GROUP BY as_of ORDER BY as_of""",
             (acc["id"], *BOOKED),
         ).fetchall()
-        for a, b in zip(snaps, snaps[1:]):
+        for a, b in pairwise(snaps):
             (moved,) = con.execute(
                 """SELECT coalesce(sum(amount_cents), 0) FROM transactions
                    WHERE account_id = ? AND duplicate_of IS NULL AND booking_date > ? AND booking_date <= ?""",
