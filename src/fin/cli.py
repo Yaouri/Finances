@@ -145,6 +145,29 @@ def cmd_balance_set(args) -> None:
     print("ok")
 
 
+def cmd_import(args) -> None:
+    from pathlib import Path
+
+    from .ingest import importers
+
+    con = _con()
+    for f in args.files:
+        path = Path(f)
+        fmt = importers.detect(path)
+        if args.dry_run:
+            res = fmt.parse(path)
+            print(f"{path.name}: {res.source}")
+            for b in res.batches:
+                d = [t.booking_date for t in b.txns]
+                print(f"  {b.role:<8} iban={b.iban or '-'} rows={len(b.txns)} {min(d)}..{max(d)} "
+                      f"net={sum(t.amount_cents for t in b.txns) / 100:,.2f} balances={b.balances} "
+                      f"{b.extra or ''}")
+            continue
+        print(f"{path.name}:")
+        for o in importers.import_file(con, path, args.account):
+            print(f"  -> {o.account:<24} rows={o.fetched} new={o.new} already={o.existing} matched_other_source={o.duplicates}")
+
+
 def cmd_sync(args) -> None:
     from .ingest.enablebanking.sync import sync_all
 
@@ -199,6 +222,12 @@ def main(argv: list[str] | None = None) -> None:
     m.add_argument("amount")
     m.add_argument("--date", help="YYYY-MM-DD (default today)")
     m.set_defaults(fn=cmd_balance_set)
+
+    i = sub.add_parser("import", help="import statement files (Revolut CSV, Millennium PDF, Santander meal XLS)")
+    i.add_argument("files", nargs="+")
+    i.add_argument("--account", type=int, help="target account for the main batch (default: auto)")
+    i.add_argument("--dry-run", action="store_true")
+    i.set_defaults(fn=cmd_import)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")

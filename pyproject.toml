@@ -19,6 +19,7 @@ dependencies = [
     "scikit-learn>=1.5",
     "yfinance>=0.2.50",
     "qrcode>=7.4",
+    "pdfplumber>=0.11",
 ]
 
 [project.scripts]
