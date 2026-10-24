@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 import ui
 
-from fin import prefs
+from fin import metrics, prefs
 from fin.categorize import taxonomy
 from fin.categorize.rules import FIELDS
 from fin.config import get_settings
@@ -242,6 +242,58 @@ def _prefs_section():
         ui.invalidate()
 
 
+def _budgets_section():
+    c = ui.con()
+    st.subheader("Monthly budgets")
+    st.caption("Per top-level category, at your share of joint spending. Suggestions = your average of the "
+               "last 6 complete months. Leave 0 for no budget.")
+    df = ui.all_txns_full()
+    sugg = metrics.suggested_budgets(df, date.today())
+    cur = dict(c.execute("SELECT category, monthly_eur FROM budgets").fetchall())
+    tops = [r[0] for r in c.execute(
+        "SELECT name FROM categories WHERE parent_id IS NULL AND kind='expense' AND name NOT IN "
+        "('Uncategorised', 'Refunds & reimbursements') ORDER BY name")]
+    table = pd.DataFrame({"category": tops, "suggested": [sugg.get(t, 0.0) for t in tops],
+                          "budget": [cur.get(t, 0.0) for t in tops]})
+    edited = st.data_editor(table, hide_index=True, width="stretch", key="budgets", disabled=["category", "suggested"],
+                            column_config={"suggested": st.column_config.NumberColumn(format="€%.0f"),
+                                           "budget": st.column_config.NumberColumn("Budget / month", format="€%.0f",
+                                                                                   min_value=0, step=10)})
+    a, b = st.columns(2)
+    if a.button("Use suggestions for empty ones"):
+        for r in table.itertuples():
+            if not r.budget and r.suggested > 0:
+                c.execute("INSERT OR REPLACE INTO budgets (category, monthly_eur) VALUES (?, ?)", (r.category, r.suggested))
+        c.commit()
+        st.rerun()
+    if b.button("Save budgets", type="primary"):
+        c.execute("DELETE FROM budgets")
+        c.executemany("INSERT INTO budgets (category, monthly_eur) VALUES (?, ?)",
+                      [(r.category, float(r.budget)) for r in edited.itertuples() if r.budget and r.budget > 0])
+        c.commit()
+        ui.invalidate()
+        st.toast("Budgets saved")
+
+
+def _export_section():
+    st.subheader("HTML report")
+    st.caption("A single self-contained page (KPIs, charts, recurring, investments, alerts) using the period "
+               "and filters in the sidebar. It opens offline on a phone.")
+    st.warning("Emailing it puts your financial data on the mail provider's servers. To view on your phone "
+               "privately, prefer Tailscale (see README) or copy the file over USB / a local share.",
+               icon=":material/shield:")
+    light = st.toggle("Small file (charts load plotly from the internet)", value=False)
+    if st.button("Build report", type="primary"):
+        from fin import report
+
+        f = st.session_state["filters"]
+        st.session_state["report_html"] = report.build(ui.con(), f, cdn=light)
+    if "report_html" in st.session_state:
+        data = st.session_state["report_html"].encode()
+        st.download_button(f"Download ({len(data) / 1e6:.1f} MB)", data, file_name=f"fin-{date.today()}.html",
+                           mime="text/html", icon=":material/download:")
+
+
 def _quality_section():
     st.subheader("Data quality")
     gaps = balance_gaps(ui.con())
@@ -257,7 +309,8 @@ def _quality_section():
 
 def render():
     st.title("Settings & data")
-    t = st.tabs(["Refresh", "Alerts", "Banks", "Import", "Rules", "Categories", "Thresholds", "Data quality"])
+    t = st.tabs(["Refresh", "Alerts", "Banks", "Import", "Rules", "Categories", "Budgets", "Thresholds",
+                 "Data quality", "Export"])
     with t[0]:
         _refresh_section()
     with t[1]:
@@ -274,6 +327,10 @@ def render():
     with t[5]:
         _categories_section()
     with t[6]:
-        _prefs_section()
+        _budgets_section()
     with t[7]:
+        _prefs_section()
+    with t[8]:
         _quality_section()
+    with t[9]:
+        _export_section()

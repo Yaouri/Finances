@@ -80,6 +80,41 @@ def render():
         fig.update_xaxes(visible=False)
         ui.show(fig, b[["name", "institution", "balance", "my_balance", "as_of", "last_synced_at"]])
 
+    # --- this month: pace + budgets -----------------------------------------------------
+    hist_f = metrics.Filters(start=date(2000, 1, 1), end=today, accounts=f.accounts, joint=f.joint)
+    full = ui.tx_frame(hist_f)
+    p_col, b_col = st.columns([3, 2], gap="large")
+    with p_col:
+        st.subheader(f"Spending pace · {today:%B}")
+        pace = metrics.month_pace(full, today)
+        fig = go.Figure()
+        fig.add_scatter(x=pace.index, y=pace.typical, name="Typical month (last 6)", mode="lines",
+                        line=dict(width=2, color=ui.ink("muted")), hovertemplate="%{y:,.0f} €")
+        fig.add_scatter(x=pace.index, y=pace.this_month, name="This month", mode="lines",
+                        line=dict(width=2, color=ui.slot(2)), hovertemplate="%{y:,.0f} €")
+        now, typ = pace.this_month.dropna().iloc[-1], pace.typical.get(today.day, 0)
+        ui.end_label(fig, today.day, now, ui.eur(now))
+        fig = ui.style(fig, 260)
+        fig.update_xaxes(title="day of month", dtick=5)
+        ui.show(fig, pace.round(0).reset_index(names="day"))
+        if typ:
+            st.caption(f"{ui.eur(now)} spent so far vs {ui.eur(typ)} by day {today.day} in a typical month "
+                       f"({now / typ - 1:+.0%}).")
+    with b_col:
+        st.subheader("Budgets")
+        bs = metrics.budget_status(ui.con(), full, today)
+        if bs.empty:
+            st.caption("No budgets yet: set them in Settings → Budgets (suggested from your averages).")
+        for r in bs.itertuples():
+            over = r.used > 1
+            ahead = r.used > r.pace + 0.1
+            note = "over budget" if over else ("ahead of pace" if ahead else "on track")
+            icon = ":material/error:" if over else (":material/warning:" if ahead else ":material/check:")
+            st.progress(min(r.used, 1.0), text=f"{icon} **{r.category}** · {ui.eur(r.spent)} of {ui.eur(r.budget)} "
+                                               f"· {note}")
+        if not bs.empty:
+            st.caption(f"{today.day / pd.Timestamp(today).days_in_month:.0%} of the month gone.")
+
     # --- alerts --------------------------------------------------------------------------
     st.subheader("Latest alerts")
     render_alerts(limit=8)

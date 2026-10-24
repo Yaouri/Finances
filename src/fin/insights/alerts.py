@@ -108,6 +108,10 @@ def drift_alerts(df: pd.DataFrame, p: dict, today: date) -> list[Alert]:
 def recurring_alerts(series: list[recurring.Series], today: date) -> list[Alert]:
     out = []
     for s in series:
+        if s.charged_after_cancel:
+            out.append(Alert(f"aftercancel:{s.key}:{s.last}", "charged_after_cancel", "serious",
+                             f"{s.merchant} charged {_eur(s.amount)} after you cancelled it",
+                             f"cancelled {s.cancelled_on} · charged {s.last} · {s.account}"))
         if not s.active:
             continue
         if s.price_change and today - s.last <= timedelta(days=60):
@@ -140,7 +144,7 @@ def generate(con: sqlite3.Connection, today: date | None = None) -> int:
     p = prefs.all_prefs(con)
     df = metrics.transactions(con)
     df["amount"] = df.my_amount_eur_cents / 100
-    series = recurring.detect(df, today)
+    series = recurring.apply_overrides(con, recurring.detect(df, today))
     alerts = (transaction_alerts(df, p, today) + drift_alerts(df, p, today)
               + recurring_alerts(series, today) + consent_alerts(con, p))
     before = con.execute("SELECT count(*) FROM alerts").fetchone()[0]

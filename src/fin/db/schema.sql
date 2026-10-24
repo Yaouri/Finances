@@ -258,3 +258,21 @@ CREATE TABLE IF NOT EXISTS fx_rates (
     rate            REAL NOT NULL,
     PRIMARY KEY (date, currency)
 );
+
+-- user decisions about detected recurring series (matched by merchant + account + amount within 25%)
+CREATE TABLE IF NOT EXISTS recurring_overrides (
+    id              INTEGER PRIMARY KEY,
+    merchant        TEXT NOT NULL,
+    account         TEXT NOT NULL,
+    typical         REAL NOT NULL,
+    status          TEXT NOT NULL,            -- cancelled | ignored (not actually recurring)
+    since           TEXT,                     -- cancellation date
+    note            TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- monthly budget per top-level expense category
+CREATE TABLE IF NOT EXISTS budgets (
+    category        TEXT PRIMARY KEY,
+    monthly_eur     REAL NOT NULL
+);

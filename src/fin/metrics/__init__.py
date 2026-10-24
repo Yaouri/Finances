@@ -167,6 +167,9 @@ def networth_series(con: sqlite3.Connection, f: Filters) -> pd.DataFrame:
     out = pd.DataFrame({"cash": cash})
     out = out.join(inv[["value_eur", "contributed_eur"]].rename(
         columns={"value_eur": "investments", "contributed_eur": "contributed"}), how="outer")
+    if out.empty or not isinstance(out.index, pd.DatetimeIndex):
+        return pd.DataFrame(columns=["cash", "investments", "contributed", "networth"],
+                            index=pd.DatetimeIndex([]))
     out[["cash", "investments"]] = out[["cash", "investments"]].ffill().fillna(0)
     out["networth"] = out.cash + out.investments
     return out[(out.index.date >= f.start) & (out.index.date <= f.end)]
@@ -191,3 +194,45 @@ def month_bounds(today: date | None = None) -> tuple[date, date]:
 
 def trailing(today: date, days: int) -> date:
     return today - timedelta(days=days)
+
+
+# --- pace & budgets -----------------------------------------------------------------------------
+
+def month_pace(df: pd.DataFrame, today: date, months: int = 6) -> pd.DataFrame:
+    """Cumulative spending by day of month: this month vs the average of the previous `months`
+    complete months. `df` should be unfiltered by date (joint mode already applied)."""
+    s = spending(df).copy()
+    s["spent"] = -s.amount
+    s["day"] = s.date.dt.day
+    this = pd.Timestamp(today.replace(day=1))
+    prev = [this - pd.DateOffset(months=i) for i in range(1, months + 1)]
+    days = pd.RangeIndex(1, 32)
+    cur = s[s.month == this].groupby("day").spent.sum().reindex(days, fill_value=0).cumsum()
+    cur = cur[cur.index <= today.day]
+    hist = (s[s.month.isin(prev)].groupby(["month", "day"]).spent.sum().unstack(fill_value=0)
+            .reindex(columns=days, fill_value=0).cumsum(axis=1))
+    typical = hist.mean(axis=0) if not hist.empty else pd.Series(0.0, index=days)
+    return pd.DataFrame({"this_month": cur, "typical": typical})
+
+
+def budget_status(con: sqlite3.Connection, df: pd.DataFrame, today: date) -> pd.DataFrame:
+    """This month's spending per top-level category vs budget, with a linear pro-rata pace."""
+    b = pd.read_sql_query("SELECT category, monthly_eur AS budget FROM budgets", con)
+    if b.empty:
+        return b
+    this = pd.Timestamp(today.replace(day=1))
+    s = spending(df)
+    spent = (-s[s.month == this].groupby("top").amount.sum()).rename("spent")
+    out = b.merge(spent, left_on="category", right_index=True, how="left").fillna({"spent": 0.0})
+    days_in = (this + pd.offsets.MonthEnd(0)).day
+    out["used"] = out.spent / out.budget
+    out["pace"] = today.day / days_in  # share of the month gone
+    out["left"] = out.budget - out.spent
+    return out.sort_values("used", ascending=False)
+
+
+def suggested_budgets(df: pd.DataFrame, today: date, months: int = 6) -> pd.Series:
+    this = pd.Timestamp(today.replace(day=1))
+    s = spending(df)
+    s = s[(s.month < this) & (s.month >= this - pd.DateOffset(months=months))]
+    return (-s.groupby("top").amount.sum() / months).round(-1).sort_values(ascending=False)

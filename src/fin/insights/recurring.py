@@ -7,6 +7,7 @@ charges whose gaps match a known period with low dispersion.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -36,6 +37,13 @@ class Series:
     typical: float         # median charge
     previous: float | None
     active: bool
+    status: str = "active"         # active | stopped (no recent charge) | cancelled (you said so)
+    cancelled_on: date | None = None
+    override_id: int | None = None
+
+    @property
+    def charged_after_cancel(self) -> bool:
+        return self.cancelled_on is not None and self.last > self.cancelled_on
 
     @property
     def annual_cost(self) -> float:
@@ -108,6 +116,47 @@ def to_frame(series: list[Series]) -> pd.DataFrame:
         "merchant": s.merchant, "category": s.category, "account": s.account, "frequency": s.period,
         "charges": s.n, "last": s.last, "next_expected": s.next_expected, "amount": s.amount, "typical": s.typical,
         "monthly_cost": s.monthly_cost, "annual_cost": s.annual_cost, "price_change": s.price_change,
-        "active": s.active, "since": s.first,
+        "active": s.active, "since": s.first, "status": s.status, "cancelled_on": s.cancelled_on,
+        "charged_after_cancel": s.charged_after_cancel, "override_id": s.override_id,
     } for s in series]
     return pd.DataFrame(rows)
+
+
+# --- user overrides -----------------------------------------------------------------------------
+
+def _matches(s: Series, o) -> bool:
+    return s.merchant == o["merchant"] and s.account == o["account"] and abs(s.typical - o["typical"]) <= 0.25 * o["typical"]
+
+
+def apply_overrides(con: sqlite3.Connection, series: list[Series]) -> list[Series]:
+    """Drop series marked 'ignored'; mark 'cancelled' ones inactive. Price changes keep matching
+    (amount within 25% of the amount at the time you cancelled)."""
+    overrides = con.execute("SELECT * FROM recurring_overrides").fetchall()
+    out = []
+    for s in series:
+        o = next((o for o in overrides if _matches(s, o)), None)
+        if o is None:
+            s.status = "active" if s.active else "stopped"
+        elif o["status"] == "ignored":
+            continue
+        else:
+            s.status, s.active, s.override_id = "cancelled", False, o["id"]
+            s.cancelled_on = date.fromisoformat(o["since"]) if o["since"] else s.last
+        out.append(s)
+    return out
+
+
+def set_override(con: sqlite3.Connection, merchant: str, account: str, typical: float, status: str,
+                 since: date | None = None, note: str | None = None) -> None:
+    if status not in ("cancelled", "ignored"):
+        raise ValueError(status)
+    con.execute("DELETE FROM recurring_overrides WHERE merchant = ? AND account = ? AND abs(typical - ?) <= 0.25 * typical",
+                (merchant, account, typical))
+    con.execute("INSERT INTO recurring_overrides (merchant, account, typical, status, since, note) VALUES (?,?,?,?,?,?)",
+                (merchant, account, typical, status, since.isoformat() if since else None, note))
+    con.commit()
+
+
+def clear_override(con: sqlite3.Connection, override_id: int) -> None:
+    con.execute("DELETE FROM recurring_overrides WHERE id = ?", (override_id,))
+    con.commit()

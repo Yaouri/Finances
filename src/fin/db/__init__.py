@@ -34,6 +34,12 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE tx_enriched ADD COLUMN ml_category_id INTEGER REFERENCES categories(id);
         ALTER TABLE tx_enriched ADD COLUMN ml_confidence REAL;
     """,
+    6: """
+        CREATE TABLE IF NOT EXISTS recurring_overrides (
+            id INTEGER PRIMARY KEY, merchant TEXT NOT NULL, account TEXT NOT NULL, typical REAL NOT NULL,
+            status TEXT NOT NULL, since TEXT, note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+        CREATE TABLE IF NOT EXISTS budgets (category TEXT PRIMARY KEY, monthly_eur REAL NOT NULL);
+    """,
 }
 SCHEMA_VERSION = max(MIGRATIONS)
 

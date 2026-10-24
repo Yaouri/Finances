@@ -2,7 +2,17 @@
 
 import streamlit as st
 import ui
-from views import cashflow, investments, overview, recurring, settings, spending, tags, transactions
+from views import (
+                   cashflow,
+                   investments,
+                   overview,
+                   projections,
+                   recurring,
+                   settings,
+                   spending,
+                   tags,
+                   transactions,
+)
 
 st.set_page_config(page_title="fin", page_icon=":material/savings:", layout="wide")
 
@@ -12,6 +22,7 @@ PAGES = [
     st.Page(spending.render, title="Spending", icon=":material/pie_chart:", url_path="spending"),
     st.Page(recurring.render, title="Recurring", icon=":material/autorenew:", url_path="recurring"),
     st.Page(investments.render, title="Investments", icon=":material/trending_up:", url_path="investments"),
+    st.Page(projections.render, title="Projections & FIRE", icon=":material/query_stats:", url_path="projections"),
     st.Page(transactions.render, title="Transactions", icon=":material/receipt_long:", url_path="transactions"),
     st.Page(tags.render, title="Trips & tags", icon=":material/sell:", url_path="tags"),
     st.Page(settings.render, title="Settings & data", icon=":material/settings:", url_path="settings"),

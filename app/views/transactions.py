@@ -62,12 +62,61 @@ def _editor(df: pd.DataFrame, key: str, suggestions: bool = False):
         st.rerun()
 
 
+def _merchants(df: pd.DataFrame):
+    """Bulk: one category per merchant -> a merchant rule (applies to past and future transactions;
+    single transactions you set by hand still win)."""
+    c = ui.con()
+    paths = [r[0] for r in c.execute("SELECT path FROM categories WHERE kind IN ('expense','income') ORDER BY path")]
+    exp = df[df.flow.isin(["expense", "income"]) & df.merchant_id.notna()]
+    g = (exp.groupby("merchant")
+         .agg(n=("id", "count"), total=("amount", "sum"), last=("date", "max"),
+              uncategorised=("category", lambda x: (x == "Uncategorised").sum()),
+              category=("category", lambda x: x[x != "Uncategorised"].mode().iat[0]
+                        if (x != "Uncategorised").any() else None))
+         .reset_index())
+    only_open = st.toggle("Only merchants with uncategorised transactions", value=True, key="m_open")
+    if only_open:
+        g = g[g.uncategorised > 0]
+    q = st.text_input("Filter merchants", key="m_q")
+    if q:
+        g = g[g.merchant.str.contains(q, case=False, regex=False)]
+    g = g.sort_values(["uncategorised", "total"], ascending=[False, True])
+    st.caption("Set a category for a merchant and save: a rule is created, so every past and future "
+               "transaction from that merchant follows it (single transactions you set by hand still win).")
+    edited = st.data_editor(g, hide_index=True, width="stretch", height=480, key="m_editor",
+                            disabled=["merchant", "n", "total", "last", "uncategorised"],
+                            column_config={
+                                "category": st.column_config.SelectboxColumn("Category", options=paths, width="large"),
+                                "total": st.column_config.NumberColumn("Total", format="€%.2f"),
+                                "last": st.column_config.DateColumn("Last"),
+                                "n": st.column_config.NumberColumn("#")})
+    changed = edited.merge(g[["merchant", "category"]], on="merchant", suffixes=("", "_old"))
+    changed = changed[changed.category.notna() & (changed.category != changed.category_old)]
+    if not changed.empty and st.button(f"Save {len(changed)} merchant rule(s)", type="primary"):
+        import re as _re
+
+        from fin.categorize import rules as R
+        from fin.categorize import taxonomy
+
+        ids = taxonomy.path_ids(c)
+        for r in changed.itertuples():
+            pat = f"^{_re.escape(r.merchant)}$"
+            c.execute("DELETE FROM rules WHERE field = 'merchant' AND pattern = ? AND coalesce(name,'') <> 'seed'", (pat,))
+            R.add_rule(c, "merchant", pat, ids[r.category], name="merchant (bulk)")
+        c.commit()
+        st.toast(f"{len(changed)} rule(s) saved · {reprocess(c).uncategorised} still uncategorised")
+        ui.invalidate()
+        st.rerun()
+
+
 def render():
     f: metrics.Filters = st.session_state["filters"]
     st.title("Transactions")
     df = ui.tx_frame(f)
     review = df[(df.category == "Uncategorised") & ~df.flow.isin(["transfer", "investing"])]
-    tab_all, tab_review = st.tabs(["All", f"Review queue ({len(review)})"])
+    tab_all, tab_review, tab_merch = st.tabs(["All", f"Review queue ({len(review)})", "By merchant"])
+    with tab_merch:
+        _merchants(ui.all_txns_full())
 
     with tab_all:
         a, b, c2 = st.columns([3, 2, 2])

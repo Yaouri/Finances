@@ -5,8 +5,47 @@ import streamlit as st
 import ui
 
 from fin import metrics
-from fin.categorize import manual
-from fin.pipeline import reprocess
+from fin.insights import trips
+
+TCOLS = ["booking_date", "when", "account", "merchant", "category", "amount", "why_not"]
+
+
+def _builder(c, df):
+    existing = metrics.by_tag(df).tag.tolist()
+    a, b, cc = st.columns([2, 2, 3])
+    choice = a.selectbox("Trip", ["New trip…", *existing], key="trip_pick")
+    name = a.text_input("Name", placeholder="e.g. Cabo Verde 2026", key="trip_name") if choice == "New trip…" else choice
+    rng = b.date_input("Trip dates", value=(date.today() - timedelta(days=14), date.today()), key="trip_dates")
+    acc = metrics.accounts(c)
+    names = dict(zip(acc.id, acc.name))
+    accs = cc.multiselect("Accounts", list(names), format_func=names.get, placeholder="All accounts", key="trip_acc")
+    lookback = cc.slider("Look for bookings made up to … days before", 0, 365, trips.PREBOOK_LOOKBACK_DAYS, 15)
+    if not name or not isinstance(rng, tuple) or len(rng) != 2:
+        st.caption("Pick a name and a start and end date.")
+        return
+    cand = trips.candidates(df, rng[0], rng[1], accounts=tuple(accs), recurring_set=trips.recurring_pairs(c, df),
+                            tag=name, lookback_days=lookback)
+    already = cand.tags.str.split(", ").apply(lambda t: name in t)
+    cand = cand[~already]
+    if cand.empty:
+        st.info("No new transactions to add for these dates.")
+        return
+    st.caption("Ticked rows will be tagged. Recurring payments (internet, gym, subscriptions) and home costs "
+               "falling inside the dates are listed unticked; travel bookings paid before the trip are ticked.")
+    view = cand[["id", "include", *TCOLS]]
+    edited = st.data_editor(view, hide_index=True, width="stretch", key=f"trip_editor_{name}_{rng}",
+                            disabled=TCOLS + ["id"], column_config={
+                                "id": None, "include": st.column_config.CheckboxColumn("Include"),
+                                "amount": st.column_config.NumberColumn(format="€%.2f"),
+                                "booking_date": st.column_config.DateColumn("Date"),
+                                "why_not": st.column_config.TextColumn("Note")})
+    picked = edited[edited.include]
+    st.caption(f"{len(picked)} selected · {ui.eur(-picked.amount.sum(), 2)}")
+    if st.button(f"Tag {len(picked)} transactions as '{name}'", type="primary", disabled=picked.empty):
+        n = trips.tag_ids(c, name.strip(), picked.id.tolist())
+        ui.invalidate()
+        st.toast(f"Tagged {n} transactions")
+        st.rerun()
 
 
 def render():
@@ -15,20 +54,8 @@ def render():
     df = ui.all_txns_full()
     tags = metrics.by_tag(df)
 
-    with st.expander("Tag a trip (date range)", expanded=tags.empty, icon=":material/flight:"):
-        a, b, cc = st.columns([2, 2, 3])
-        name = a.text_input("Tag", placeholder="e.g. Cabo Verde 2026")
-        rng = b.date_input("Dates", value=(date.today() - timedelta(days=14), date.today()))
-        acc = metrics.accounts(c)
-        names = dict(zip(acc.id, acc.name))
-        accs = cc.multiselect("Accounts", list(names), format_func=names.get, placeholder="All accounts")
-        if st.button("Tag spending in range", type="primary", disabled=not name or len(rng) != 2):
-            n = manual.tag_range(c, name.strip(), rng[0].isoformat(), rng[1].isoformat(), accs)
-            reprocess(c)
-            ui.invalidate()
-            st.toast(f"Tagged {n} transactions with '{name}'")
-            st.rerun()
-        st.caption("Tags only expenses. Fine-tune single transactions on the Transactions page (Tags column).")
+    with st.expander("Build or extend a trip", expanded=tags.empty, icon=":material/flight:"):
+        _builder(c, df)
 
     if tags.empty:
         st.info("No tags yet.")
@@ -46,15 +73,27 @@ def render():
     pick = st.selectbox("Tag details", tags.tag.tolist())
     sel = df[df.tags.str.split(", ").apply(lambda x: pick in x)]
     s = metrics.spending(sel) if pick != "one-off" else sel
+    span = sel[sel.top != "Travel"] if not sel.empty else sel
+    days = (span.date.max() - span.date.min()).days + 1 if not span.empty else 0
+    k = st.columns(4)
+    k[0].metric("Total", ui.eur(-s.amount.sum()), border=True)
+    k[1].metric("Booked before", ui.eur(-s[s.date < span.date.min()].amount.sum()) if days else "–", border=True,
+                help="Travel purchases dated before the first on-trip spend")
+    k[2].metric("Days", days or "–", border=True)
+    k[3].metric("Per day (on trip)", ui.eur(-s[s.date >= span.date.min()].amount.sum() / days, 2) if days else "–",
+                border=True)
     a, b = st.columns([2, 3], gap="large")
     with a:
         bycat = (-s.groupby("category").amount.sum()).sort_values(ascending=False)
         st.dataframe(bycat.round(2).rename("spent").reset_index(), hide_index=True, width="stretch",
                      column_config={"spent": st.column_config.NumberColumn("Spent", format="€%.2f")})
-        days = (sel.date.max() - sel.date.min()).days + 1 if not sel.empty else 0
-        if days:
-            st.caption(f"{days} days · {ui.eur(-s.amount.sum() / days, 2)} per day")
     with b:
-        st.dataframe(sel.sort_values("date")[["booking_date", "account", "merchant", "category", "amount", "notes"]],
-                     hide_index=True, width="stretch",
-                     column_config={"amount": st.column_config.NumberColumn("Amount", format="€%.2f")})
+        tv = sel.sort_values("date")[["id", "booking_date", "account", "merchant", "category", "amount", "notes"]]
+        ev = st.dataframe(tv, hide_index=True, width="stretch", key="tag_tx", on_select="rerun",
+                          selection_mode="multi-row", column_config={
+                              "id": None, "amount": st.column_config.NumberColumn("Amount", format="€%.2f")})
+        rows = tv.iloc[ev.selection.rows] if ev and ev.selection.rows else tv.iloc[0:0]
+        if not rows.empty and st.button(f"Remove {len(rows)} from '{pick}'"):
+            trips.untag_ids(c, pick, rows.id.tolist())
+            ui.invalidate()
+            st.rerun()

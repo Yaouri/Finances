@@ -42,6 +42,42 @@ The **Refresh** button (Settings, or `fin refresh`) does the following. It never
 3. Re-categorises everything.
 4. Raises alerts.
 
+## Pages
+
+| Page | What it shows |
+|---|---|
+| Overview | net worth, balances, month so far, **spending pace** vs a typical month, **budgets**, alerts |
+| Cash flow | income vs expenses, net savings, savings rate |
+| Spending | category → sub-category → merchant → transactions drill-down, monthly heatmap |
+| Recurring | subscriptions and fixed costs; **mark cancelled** (warns if they charge again) or *not recurring* |
+| Investments | value vs contributions, positions, realised gains, dividends, lots |
+| Projections & FIRE | **Monte Carlo** (5,000 paths): baseline vs *what if* (invest ±%, one-off buys, stop after N years), FIRE probability |
+| Transactions | search, inline edit, **review queue** (ML suggestions), **by-merchant bulk rules** |
+| Trips & tags | trip builder: in-range spending (recurring and home costs excluded) + flights/hotels booked before |
+| Settings & data | refresh, banks, imports, rules, categories, budgets, thresholds, data quality, **HTML export** |
+
+## Categorising (and why it sticks)
+
+- **One transaction.** Transactions → change the *Category* cell → **Save**. It is stored in `tx_user`, which
+  Refresh and reprocessing never touch. Tick *create a rule* to make future ones from that merchant follow.
+- **A whole merchant.** Transactions → *By merchant* → set a category → **Save**. This creates a rule that applies
+  to every past and future transaction from that merchant. A single transaction you set by hand still wins.
+- **Pattern rules** (e.g. anything containing `PADEL`): Settings → Rules.
+
+Priority: manual > internal transfer > rule > ML (≥ 70% confidence) > review queue.
+
+## On your phone
+
+**Recommended: Tailscale.** It's private, nothing leaves your devices, and you get the live app.
+
+1. Start Tailscale on the PC and sign in. Install the Tailscale app on the phone and sign in with the same account.
+2. On the PC, run `tailscale serve --bg 8501`. This serves the running app over HTTPS, inside your tailnet only.
+3. On the phone, open `https://<pc-name>.<tailnet>.ts.net`. The command in step 2 prints this address.
+
+**Offline snapshot.** Settings → Export (or `fin report`) writes one HTML file (~5 MB, works offline).
+Emailing it puts your data on the mail provider's servers, so prefer USB, a local share, or Tailscale's
+`tailscale file cp`.
+
 ## How data flows
 
 ```
@@ -78,6 +114,7 @@ bank API / files ──► raw_payloads (gzip, immutable) ──► transactions
 | `fin categorize <id> "<Category > Sub>" [--tag one-off] [--rule]` | manual decision |
 | `fin invest [refresh\|lots\|add\|supersede]` | lots and prices |
 | `fin reprocess [--reseed]`, `fin check` | rebuild derived data, reconcile |
+| `fin report [--months 12] [--cdn] [--out f.html]` | static HTML snapshot |
 
 ## Hosting on the home server later
 

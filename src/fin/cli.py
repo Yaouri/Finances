@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 import webbrowser
+from pathlib import Path
 
 from . import db
 from .config import get_settings
@@ -302,6 +303,22 @@ def cmd_refresh(args) -> None:
         print("ERROR", e)
 
 
+def cmd_report(args) -> None:
+    from datetime import date
+
+    import pandas as pd
+
+    from . import metrics, report
+
+    today = date.today()
+    start = (pd.Timestamp(today.replace(day=1)) - pd.DateOffset(months=args.months - 1)).date()
+    html = report.build(_con(), metrics.Filters(start=start, end=today), cdn=args.cdn)
+    out = Path(args.out or get_settings().data_dir / "reports" / f"fin-{today}.html")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
+
+
 def cmd_sync(args) -> None:
     from .ingest.enablebanking.sync import sync_all
 
@@ -404,6 +421,12 @@ def main(argv: list[str] | None = None) -> None:
     rf.add_argument("--force", action="store_true")
     rf.add_argument("--no-banks", action="store_true", help="skip bank calls (prices/reprocess only)")
     rf.set_defaults(fn=cmd_refresh)
+
+    rp2 = sub.add_parser("report", help="write a self-contained HTML snapshot")
+    rp2.add_argument("--out")
+    rp2.add_argument("--months", type=int, default=12)
+    rp2.add_argument("--cdn", action="store_true", help="smaller file; charts need internet")
+    rp2.set_defaults(fn=cmd_report)
 
     y = sub.add_parser("sync", help="refresh balances and transactions")
     y.add_argument("--force", action="store_true")
